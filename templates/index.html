@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Navigation for Blind Users</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1 aria-hidden="true">Voice Navigation</h1>
+        
+        <div class="status-container">
+            <div id="status" aria-live="assertive">Initializing voice navigation...</div>
+            <div class="instructions">
+                <p>Press and hold <strong>Space</strong> to record locations</p>
+                <p>Press <strong>Space</strong> to pause/resume directions</p>
+            </div>
+        </div>
+        
+        <div class="locations">
+            <div class="location-box">
+                <h2>Current Location</h2>
+                <p id="origin" aria-live="polite">Not set yet</p>
+            </div>
+            <div class="location-box">
+                <h2>Destination</h2>
+                <p id="destination" aria-live="polite">Not set yet</p>
+            </div>
+        </div>
+        
+        <div id="directions" class="hidden">
+            <h2>Directions</h2>
+            <div id="summary"></div>
+            <ol id="steps"></ol>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
