@@ -27,6 +27,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initialize speech synthesis and recognition
     function initSpeech() {
+        if (!statusDiv) {
+            console.error('Status div not found');
+            return false;
+        }
+        
         if (!('speechSynthesis' in window)) {
             statusDiv.textContent = 'Speech synthesis not supported';
             return false;
@@ -55,22 +60,15 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             isSpacePressed = true;
             
-            if (!isDirectionsActive) {
-                // Setting locations mode
-                if (!origin) {
-                    isSettingLocation = true;
-                    statusDiv.textContent = 'Recording current location...';
-                    speakMessage("Please say your current location", false);
-                    recognition.start();
-                } else if (!destination) {
-                    isSettingLocation = false;
-                    statusDiv.textContent = 'Recording destination...';
-                    speakMessage("Please say your destination", false);
-                    recognition.start();
-                }
-            } else {
+            if (isDirectionsActive) {
                 // Directions mode - toggle pause/resume
+                e.preventDefault();
                 togglePauseResume();
+            } else {
+                // Start recording full prompt
+                statusDiv.textContent = 'Recording your navigation prompt...';
+                speakMessage("Please say your navigation prompt, for example, navigate from your current location to your destination.", false);
+                recognition.start();
             }
         }
     });
@@ -108,6 +106,14 @@ document.addEventListener('DOMContentLoaded', function() {
             speakMessage("Directions paused", false);
             speechSynthesis.cancel();
             isSpeaking = false;
+            // Also stop current utterance to prevent overlap
+            if (currentUtterance) {
+                currentUtterance.onend = null;
+                // Cancel current utterance speaking if possible
+                if (speechSynthesis.speaking) {
+                    speechSynthesis.cancel();
+                }
+            }
         }
     }
     
@@ -115,18 +121,50 @@ document.addEventListener('DOMContentLoaded', function() {
     function handleSpeechResult(event) {
         const transcript = event.results[0][0].transcript.trim();
         showVoiceFeedback(transcript);
-        
-        if (isSettingLocation) {
-            origin = transcript;
-            originDiv.textContent = transcript;
-            speakMessage(`Current location set to: ${transcript}. Press space again to set destination.`, false);
-        } else {
-            destination = transcript;
-            destinationDiv.textContent = transcript;
-            speakMessage(`Destination set to: ${transcript}. Getting directions now. Press space to pause or resume.`, false);
-            isDirectionsActive = true;
-            fetchDirections(origin, destination);
-        }
+
+        // Send the full transcript as a single prompt to backend
+        originDiv.textContent = 'Processing prompt...';
+        destinationDiv.textContent = '';
+        statusDiv.textContent = 'Processing your request...';
+
+        fetch('/get_directions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt: transcript
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { 
+                    throw new Error(err.error || 'Failed to get directions');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            originDiv.textContent = data.origin;
+            destinationDiv.textContent = data.destination;
+            statusDiv.textContent = 'Directions ready.';
+            directionsData = data;
+            displayDirections(data);
+            directionsDiv.classList.remove('hidden');
+            prepareDirections();
+            isDirectionsActive = true;  // Set directions active here
+            speakDirections();
+        })
+        .catch(error => {
+            console.error('Direction fetch error:', error);
+            statusDiv.textContent = 'Error getting directions';
+            speakMessage("Sorry, I couldn't get directions. Please try again.", false);
+            isDirectionsActive = false;
+        });
     }
     
     function handleSpeechError(event) {
@@ -157,29 +195,32 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function prepareDirections() {
+        if (!directionsData) return;
+        
         directionsQueue = [];
         
-        // Add introduction with accurate distance and duration
+        // Add introduction with accurate duration
         directionsQueue.push({
             text: `Directions from ${directionsData.origin} to ${directionsData.destination}. ` +
-                  `Total distance is ${directionsData.total_distance} covering approximately ` +
-                  `${directionsData.total_duration}. Starting directions now.`,
+                  `Total distance is ${directionsData.total_distance}. ` +
+                  `Expected travel time is about ${directionsData.total_duration}. ` +
+                  `Starting directions now.`,
             isIntro: true
         });
         
-        // Process each step (just instructions, no distance/duration)
+        // Process each step (just instructions)
         directionsData.steps.forEach(step => {
             let instruction = step.instruction;
             
             // Clean up instruction text
             instruction = instruction.replace(/^Head /, 'Go ')
                                    .replace(/^Turn slight /, 'Turn slightly ')
-                                   .replace(/^Continue straight /, 'Continue on ');
+                                   .replace(/^Continue straight /, 'Continue on ')
+                                   .replace(/Destination will be/, 'Your destination will be');
             
             directionsQueue.push({
                 text: instruction,
-                isIntro: false,
-                originalStep: step
+                isIntro: false
             });
         });
         
@@ -301,6 +342,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function displayDirections(data) {
+        if (!summaryDiv || !stepsList) return;
+        
         summaryDiv.innerHTML = `
             <p><strong>From:</strong> ${data.origin}</p>
             <p><strong>To:</strong> ${data.destination}</p>
@@ -320,7 +363,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize the app
     if (initSpeech()) {
-        statusDiv.textContent = 'Press and hold Space to set current location';
-        speakMessage("Welcome to Voice Navigation. Press and hold the spacebar to set your current location.", false);
+        statusDiv.textContent = 'Press and hold Space and speak your navigation prompt';
+        speakMessage("Welcome to Voice Navigation. Press and hold the spacebar and speak your navigation prompt.", false);
     }
 });
